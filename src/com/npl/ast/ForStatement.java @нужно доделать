@@ -1,0 +1,12 @@
+package com.npl.ast;
+
+import java.util.List;
+
+public class ForStatement extends Statement {
+    public final Expression condition;
+    public final List<Statement> body;
+    public WhileStatement(Expression condition, List<Statement> body) {
+        this.condition = condition;
+        this.body = body;
+    }
+}
