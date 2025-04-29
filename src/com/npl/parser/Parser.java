@@ -11,15 +11,22 @@ import java.util.List;
 public class Parser {
     private final Lexer lexer;
     private Token currentToken;
+    private Token nextToken;
 
     public Parser(Lexer lexer) {
         this.lexer = lexer;
         currentToken = lexer.getNextToken();
+        nextToken = lexer.getNextToken();
+    }
+
+    private void advance() {
+        currentToken = nextToken;
+        nextToken = lexer.getNextToken();
     }
 
     private void eat(TokenType type) {
         if (currentToken.type == type) {
-            currentToken = lexer.getNextToken();
+            advance();
         } else {
             throw new RuntimeException("Expected token " + type + " but got " + currentToken.type);
         }
@@ -34,34 +41,69 @@ public class Parser {
     }
 
     private Statement parseStatement() {
-        if (currentToken.type == TokenType.PRINT) {
-            return parsePrintStatement();
-        } else if (currentToken.type == TokenType.IF) {
-            return parseIfStatement();
-        } else if (currentToken.type == TokenType.WHILE) {
-            return parseWhileStatement();
-        } else if (currentToken.type == TokenType.IDENTIFIER) {
-            return parseAssignmentStatement();
+        switch (currentToken.type) {
+            case PRINT:    return parsePrintStatement();
+            case IF:       return parseIfStatement();
+            case WHILE:    return parseWhileStatement();
+            case FOR:      return parseForStatement();
+            case IDENTIFIER:
+                String name = currentToken.text;
+                eat(TokenType.IDENTIFIER);
+                if (currentToken.type == TokenType.ASSIGN) {
+                    return parseAssignmentStatement(name);
+                } else if (currentToken.type == TokenType.INCREMENT
+                        || currentToken.type == TokenType.DECREMENT) {
+                    return parsePostfixExpression(name);
+                } else {
+                    Expression expr = parseExpression();
+                    eat(TokenType.SEMICOLON);
+                    return new ExpressionStatement(expr);
+                }
+            default:
+                throw new RuntimeException("Unknown statement starting with token: " + currentToken);
         }
-        throw new RuntimeException("Unknown statement starting with token: " + currentToken);
     }
 
     private Statement parsePrintStatement() {
         eat(TokenType.PRINT);
         eat(TokenType.LPAREN);
-        Expression expr = parseExpression();
+
+        List<Expression> exprs = new ArrayList<>();
+        exprs.add(parseExpression());
+
+        Expression end = new StringExpression("\n");
+        while (currentToken.type == TokenType.COMMA) {
+            eat(TokenType.COMMA);
+            if (currentToken.type == TokenType.END) {
+                eat(TokenType.END);
+                eat(TokenType.ASSIGN);
+                String endText = currentToken.text;
+                eat(TokenType.STRING);
+                end = new StringExpression(endText);
+                break;
+            } else {
+                exprs.add(parseExpression());
+            }
+        }
+
         eat(TokenType.RPAREN);
         eat(TokenType.SEMICOLON);
-        return new PrintStatement(expr);
+
+        return new PrintStatement(exprs, end);
     }
 
-    private Statement parseAssignmentStatement() {
-        String varName = currentToken.text;
-        eat(TokenType.IDENTIFIER);
+    private Statement parseAssignmentStatement(String varName) {
         eat(TokenType.ASSIGN);
         Expression expr = parseExpression();
         eat(TokenType.SEMICOLON);
         return new AssignmentStatement(varName, expr);
+    }
+
+    private Statement parsePostfixExpression(String varName) {
+        TokenType op = currentToken.type;
+        eat(op);
+        eat(TokenType.SEMICOLON);
+        return new PostfixExpressionStatement(varName, op);
     }
 
     private Statement parseIfStatement() {
@@ -70,6 +112,7 @@ public class Parser {
         Expression condition = parseExpression();
         eat(TokenType.RPAREN);
         eat(TokenType.LBRACE);
+
         List<Statement> thenBranch = new ArrayList<>();
         while (currentToken.type != TokenType.RBRACE) {
             thenBranch.add(parseStatement());
@@ -95,6 +138,7 @@ public class Parser {
         Expression condition = parseExpression();
         eat(TokenType.RPAREN);
         eat(TokenType.LBRACE);
+
         List<Statement> body = new ArrayList<>();
         while (currentToken.type != TokenType.RBRACE) {
             body.add(parseStatement());
@@ -103,8 +147,71 @@ public class Parser {
         return new WhileStatement(condition, body);
     }
 
+    private Statement parseForStatement() {
+        eat(TokenType.FOR);
+        eat(TokenType.LPAREN);
+
+        String initVar = currentToken.text;
+        eat(TokenType.IDENTIFIER);
+        eat(TokenType.ASSIGN);
+        Expression initExpr = parseExpression();
+        eat(TokenType.SEMICOLON);
+        Statement initialization = new AssignmentStatement(initVar, initExpr);
+
+        Expression condition = parseExpression();
+        eat(TokenType.SEMICOLON);
+
+        Statement update;
+        String updVar = currentToken.text;
+        eat(TokenType.IDENTIFIER);
+        if (currentToken.type == TokenType.INCREMENT || currentToken.type == TokenType.DECREMENT) {
+            TokenType op = currentToken.type;
+            eat(op);
+            update = new PostfixExpressionStatement(updVar, op);
+        } else if (currentToken.type == TokenType.ASSIGN) {
+            eat(TokenType.ASSIGN);
+            Expression updExpr = parseExpression();
+            update = new AssignmentStatement(updVar, updExpr);
+        } else {
+            throw new RuntimeException("Unexpected token in for-update: " + currentToken);
+        }
+        eat(TokenType.RPAREN);
+        eat(TokenType.LBRACE);
+
+        List<Statement> body = new ArrayList<>();
+        while (currentToken.type != TokenType.RBRACE) {
+            body.add(parseStatement());
+        }
+        eat(TokenType.RBRACE);
+
+        return new ForStatement(initialization, condition, update, body);
+    }
+
+    // выражения
     private Expression parseExpression() {
-        return parseEquality();
+        return parseOr();
+    }
+
+    private Expression parseOr() {
+        Expression expr = parseAnd();
+        while (currentToken.type == TokenType.OR) {
+            String op = currentToken.text;
+            eat(TokenType.OR);
+            Expression right = parseAnd();
+            expr = new BinaryExpression(expr, op, right);
+        }
+        return expr;
+    }
+
+    private Expression parseAnd() {
+        Expression expr = parseEquality();
+        while (currentToken.type == TokenType.AND) {
+            String op = currentToken.text;
+            eat(TokenType.AND);
+            Expression right = parseEquality();
+            expr = new BinaryExpression(expr, op, right);
+        }
+        return expr;
     }
 
     private Expression parseEquality() {
@@ -127,7 +234,7 @@ public class Parser {
             if (currentToken.type == TokenType.LT) eat(TokenType.LT);
             else if (currentToken.type == TokenType.GT) eat(TokenType.GT);
             else if (currentToken.type == TokenType.LEQ) eat(TokenType.LEQ);
-            else if (currentToken.type == TokenType.GEQ) eat(TokenType.GEQ);
+            else eat(TokenType.GEQ);
             Expression right = parseTerm();
             expr = new BinaryExpression(expr, op, right);
         }
@@ -159,24 +266,35 @@ public class Parser {
     }
 
     private Expression parsePrimary() {
-        if (currentToken.type == TokenType.STRING) {
-            String str = currentToken.text;
-            eat(TokenType.STRING);
-            return new StringExpression(str);
-        } else if (currentToken.type == TokenType.NUMBER) {
-            double value = Double.parseDouble(currentToken.text);
-            eat(TokenType.NUMBER);
-            return new NumberExpression(value);
-        } else if (currentToken.type == TokenType.IDENTIFIER) {
-            String name = currentToken.text;
-            eat(TokenType.IDENTIFIER);
-            return new VariableExpression(name);
-        } else if (currentToken.type == TokenType.LPAREN) {
-            eat(TokenType.LPAREN);
-            Expression expr = parseExpression();
-            eat(TokenType.RPAREN);
-            return expr;
+        switch (currentToken.type) {
+            case STRING:
+                String s = currentToken.text;
+                eat(TokenType.STRING);
+                return new StringExpression(s);
+            case NUMBER:
+                double v = Double.parseDouble(currentToken.text);
+                eat(TokenType.NUMBER);
+                return new NumberExpression(v);
+            case IDENTIFIER:
+                String name = currentToken.text;
+                eat(TokenType.IDENTIFIER);
+                return new VariableExpression(name);
+            case TRUE:
+                eat(TokenType.TRUE);
+                return new BooleanExpression(true);
+            case FALSE:
+                eat(TokenType.FALSE);
+                return new BooleanExpression(false);
+            case NONE:
+                eat(TokenType.NONE);
+                return new NoneExpression();
+            case LPAREN:
+                eat(TokenType.LPAREN);
+                Expression inner = parseExpression();
+                eat(TokenType.RPAREN);
+                return inner;
+            default:
+                throw new RuntimeException("Unexpected token in expression: " + currentToken);
         }
-        throw new RuntimeException("Unexpected token in expression: " + currentToken);
     }
 }

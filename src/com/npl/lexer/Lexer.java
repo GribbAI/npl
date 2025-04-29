@@ -78,17 +78,39 @@ public class Lexer {
                 skipWhitespace();
                 continue;
             }
-
+            
+            if (currentChar == '/') {
+                if (currentChar == '/') {
+                    advance();
+                    if (currentChar == '/') {
+                        while (currentChar != '\n' && currentChar != '\0') {
+                            advance();
+                        }
+                    } else if (currentChar == '*') {
+                        advance();
+                        while (currentChar != '*' && currentChar != '\0') {
+                            advance();
+                            if (currentChar == '*') {
+                                advance();
+                                if (currentChar == '/') {
+                                    advance();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+               continue;
+            }
+            
             if (currentChar == '"' || currentChar == '\'') {
                 char quote = currentChar;
                 String str = stringLiteral(quote);
                 return new Token(TokenType.STRING, str);
             }
-
             if (Character.isDigit(currentChar)) {
                 return new Token(TokenType.NUMBER, number());
             }
-
             if (Character.isLetter(currentChar) || currentChar == '_') {
                 String id = identifier();
                 switch (id) {
@@ -96,20 +118,57 @@ public class Lexer {
                     case "if": return new Token(TokenType.IF, id);
                     case "else": return new Token(TokenType.ELSE, id);
                     case "while": return new Token(TokenType.WHILE, id);
+                    case "for": return new Token(TokenType.FOR, id);
+                    case "end": return new Token(TokenType.END, id);
+                    case "true": return new Token(TokenType.TRUE, id);
+                    case "false": return new Token(TokenType.FALSE, id);
+                    case "none": return new Token(TokenType.NONE, id);
+                    case "or": return new Token(TokenType.OR, id);
+                    case "and": return new Token(TokenType.AND, id);
                     default: return new Token(TokenType.IDENTIFIER, id);
                 }
             }
-
             switch (currentChar) {
                 case '(': advance(); return new Token(TokenType.LPAREN, "(");
                 case ')': advance(); return new Token(TokenType.RPAREN, ")");
                 case '{': advance(); return new Token(TokenType.LBRACE, "{");
                 case '}': advance(); return new Token(TokenType.RBRACE, "}");
                 case ';': advance(); return new Token(TokenType.SEMICOLON, ";");
-                case '+': advance(); return new Token(TokenType.PLUS, "+");
-                case '-': advance(); return new Token(TokenType.MINUS, "-");
-                case '*': advance(); return new Token(TokenType.MULT, "*");
-                case '/': advance(); return new Token(TokenType.DIV, "/");
+                case ',': advance(); return new Token(TokenType.COMMA, ",");
+                case '+':
+                    advance();
+                    if (currentChar == '+') {
+                        advance();
+                        return new Token(TokenType.INCREMENT, "++");
+                    } else if (currentChar == '=') {
+                        advance();
+                        return new Token(TokenType.PLUS_ASSIGN, "+=");
+                    }
+                    return new Token(TokenType.PLUS, "+");
+                case '-':
+                    advance();
+                    if (currentChar == '-') {
+                        advance();
+                        return new Token(TokenType.DECREMENT, "--");
+                    } else if (currentChar == '=') {
+                        advance();
+                        return new Token(TokenType.MINUS_ASSIGN, "-=");
+                    }
+                    return new Token(TokenType.MINUS, "-");
+                case '*':
+                    advance();
+                    if (currentChar == '=') {
+                        advance();
+                        return new Token(TokenType.MULT_ASSIGN, "*=");
+                    }
+                    return new Token(TokenType.MULT, "*");
+                case '/':
+                    advance();
+                    if (currentChar == '=') {
+                        advance();
+                        return new Token(TokenType.DIV_ASSIGN, "/=");
+                    }
+                    return new Token(TokenType.DIV, "/");
                 case '=':
                     advance();
                     if (currentChar == '=') {
@@ -139,10 +198,8 @@ public class Lexer {
                     }
                     return new Token(TokenType.GT, ">");
             }
-
             throw new RuntimeException("Unexpected character: " + currentChar);
         }
-
         return new Token(TokenType.EOF, "");
     }
 }
